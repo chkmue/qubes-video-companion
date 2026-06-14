@@ -12,7 +12,7 @@ import sys
 import re
 import subprocess
 from service import Service
-import qubesdb
+import qubesdb # pylint: disable=import-error
 
 
 class Webcam(Service):
@@ -23,7 +23,7 @@ class Webcam(Service):
     untrusted_requested_fps: int
 
     def __init__(self, *, untrusted_arg: str):
-        #self.port_id = "dev-video0"
+        # self.port_id = "dev-video0"
         # By default use the port id with highest number from QubesDB
         self.port_id = self.get_highest_port_id()
 
@@ -33,43 +33,65 @@ class Webcam(Service):
             if untrusted_arg.startswith("dev-"):
                 # first arg may be a port id, and then optional resolution arg
                 if "+" in untrusted_arg:
-                    untrusted_port_id, untrusted_arg = (
-                        untrusted_arg.split("+", 1)
+                    untrusted_port_id, untrusted_arg = untrusted_arg.split(
+                        "+", 1
                     )
                 else:
                     untrusted_port_id, untrusted_arg = untrusted_arg, None
 
-                supported_port_ids = ["dev-video0", "dev-video2", "dev-video4", "dev-video6", "dev-video8"]
+                supported_port_ids = [
+                    "dev-video0",
+                    "dev-video2",
+                    "dev-video4",
+                    "dev-video6",
+                    "dev-video8",
+                ]
                 if untrusted_port_id not in supported_port_ids:
-                    print(f"Unsupported webcam port ({untrusted_port_id}), "
-                           "only 'dev-video0/2/4/6/8' supported", file=sys.stderr)
+                    print(
+                        f"Unsupported webcam port ({untrusted_port_id}), "
+                        "only 'dev-video0/2/4/6/8' supported",
+                        file=sys.stderr,
+                    )
                 self.port_id = untrusted_port_id
 
-
         if untrusted_arg:
+
             def parse_int(untrusted_decimal: bytes) -> int:
-                if not ((1 <= len(untrusted_decimal) <= 4) and
-                        untrusted_decimal.isdigit() and
-                        untrusted_decimal[0] != "0"):
-                    print("Invalid argument " + untrusted_arg + ": bad number",
-                          file=sys.stderr)
+                if not (
+                    (1 <= len(untrusted_decimal) <= 4)
+                    and untrusted_decimal.isdigit()
+                    and untrusted_decimal[0] != "0"
+                ):
+                    print(
+                        "Invalid argument " + untrusted_arg + ": bad number",
+                        file=sys.stderr,
+                    )
                     sys.exit(1)
                 return int(untrusted_decimal, 10)
+
             if len(untrusted_arg) > 14:
                 # qrexec has already sanitized the argument to some degree,
                 # so this is safe
-                print("Invalid argument " + untrusted_arg +
-                      ": too long (limit 14 bytes)", file=sys.stderr)
+                print(
+                    "Invalid argument "
+                    + untrusted_arg
+                    + ": too long (limit 14 bytes)",
+                    file=sys.stderr,
+                )
                 sys.exit(1)
             arg_list = untrusted_arg.split("+", 4)
             if len(arg_list) != 3:
-                print("Invalid argument " + untrusted_arg +
-                      ": wrong number of integers (expected 3)",
-                      file=sys.stderr)
+                print(
+                    "Invalid argument "
+                    + untrusted_arg
+                    + ": wrong number of integers (expected 3)",
+                    file=sys.stderr,
+                )
                 sys.exit(1)
-            ( self.untrusted_requested_width
-            , self.untrusted_requested_height
-            , self.untrusted_requested_fps
+            (
+                self.untrusted_requested_width,
+                self.untrusted_requested_height,
+                self.untrusted_requested_fps,
             ) = map(parse_int, arg_list)
         else:
             self.untrusted_requested_width = 0
@@ -96,11 +118,15 @@ class Webcam(Service):
             rb"\t\t\tInterval: Discrete [0-9.]+s \([0-9]+\.0+ fps\)\Z"
         )
         frac_interval_re = re.compile(
-            rb"\t\t\tInterval: Discrete [0-9.]+s \([0-9]+\.0*[1-9][0-9]* "\
+            rb"\t\t\tInterval: Discrete [0-9.]+s \([0-9]+\.0*[1-9][0-9]* "
             rb"fps\)\Z"
         )
         proc = subprocess.run(
-            ("v4l2-ctl", "--list-formats-ext", f"--device=/dev/video{self.port_id[-1]}"),
+            (
+                "v4l2-ctl",
+                "--list-formats-ext",
+                f"--device=/dev/video{self.port_id[-1]}",
+            ),
             stdout=subprocess.PIPE,
             check=True,
             env={"PATH": "/bin:/usr/bin", "LC_ALL": "C"},
@@ -130,10 +156,11 @@ class Webcam(Service):
                 print("Cannot parse output %r of v4l2ctl" % i, file=sys.stderr)
         formats.sort(key=lambda x: x[0] * x[1] * x[2], reverse=True)
         if self.untrusted_requested_fps:
-            formats.sort(key=lambda x:
-                         (x[0] - self.untrusted_requested_width) ** 2 +
-                         (x[1] - self.untrusted_requested_height) ** 2 +
-                         (x[2] - self.untrusted_requested_fps) ** 2)
+            formats.sort(
+                key=lambda x: (x[0] - self.untrusted_requested_width) ** 2
+                + (x[1] - self.untrusted_requested_height) ** 2
+                + (x[2] - self.untrusted_requested_fps) ** 2
+            )
         return formats[0]
 
     def pipeline(self, width: int, height: int, fps: int, **kwargs):
@@ -151,23 +178,22 @@ class Webcam(Service):
             convert = (
                 "!",
                 "capsfilter",
-                "caps={},chroma-site=none,".format(fmt)
-                + caps,
+                "caps={},chroma-site=none,".format(fmt) + caps,
                 "!",
                 "jpegdec",
             )
         else:
             convert = (
-                    "!",
-                    "videoconvert",
-                    # workaround until
-                    # https://gitlab.freedesktop.org/gstreamer/gstreamer/-/merge_requests/3713
-                    # get merged:
-                    # no-op filter that copies the frame based on its actual
-                    # size, to discard padding
-                    "!",
-                    "videoflip",
-                    )
+                "!",
+                "videoconvert",
+                # workaround until
+                # https://gitlab.freedesktop.org/gstreamer/gstreamer/-/merge_requests/3713
+                # get merged:
+                # no-op filter that copies the frame based on its actual
+                # size, to discard padding
+                "!",
+                "videoflip",
+            )
         return [
             "v4l2src",
             f"device=/dev/video{self.port_id[-1]}",
@@ -215,7 +241,9 @@ if __name__ == "__main__":
     if len(sys.argv) == 2:
         _untrusted_arg = sys.argv[1]
     elif len(sys.argv) != 1:
-        print("Must have 0 or 1 argument, not " + str(len(sys.argv)),
-              file=sys.stderr)
+        print(
+            "Must have 0 or 1 argument, not " + str(len(sys.argv)),
+            file=sys.stderr,
+        )
         sys.exit(1)
     webcam = Webcam(untrusted_arg=_untrusted_arg)
